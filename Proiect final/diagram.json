@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "author": "Robert",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "wokwi-esp32-devkit-v1", "id": "esp", "top": 0, "left": 0, "attrs": {} },
+    { "type": "board-st7789", "id": "lcd1", "top": -150, "left": 50, "attrs": { "height": 240, "width": 240 } }
+  ],
+  "connections": [
+    [ "esp:GND.1", "lcd1:GND", "black", [ "v0" ] ],
+    [ "esp:3V3", "lcd1:VCC", "red", [ "v0" ] ],
+    [ "esp:D18", "lcd1:SCK", "yellow", [ "v0" ] ],
+    [ "esp:D23", "lcd1:MOSI", "blue", [ "v0" ] ],
+    [ "esp:D4", "lcd1:RST", "orange", [ "v0" ] ],
+    [ "esp:D2", "lcd1:DC", "white", [ "v0" ] ],
+    [ "esp:D15", "lcd1:CS", "purple", [ "v0" ] ],
+    [ "esp:3V3", "lcd1:BLK", "red", [ "v0" ] ]
+  ],
+  "dependencies": {}
+}
