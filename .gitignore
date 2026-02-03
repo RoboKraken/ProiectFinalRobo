@@ -1,0 +1,19 @@
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+*.elf
+*.bin
+*.hex
+*.map
+
+# VS Code
+.vscode/
+.history/
+
+# Temporary files
+tmp/
+temp/
+
+# Project Specific - Reference Code
+VoltmetruProjectTemplateDMA/
