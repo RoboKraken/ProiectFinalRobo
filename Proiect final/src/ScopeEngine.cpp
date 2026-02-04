@@ -72,7 +72,7 @@ void scopeInit() {
 
 void scopeStart() {
     xTaskCreatePinnedToCore(
-        i2sTask, "I2S_Reader", 4096, NULL, 1, &i2sTaskHandle, 0
+        i2sTask, "I2S_Reader", 4096, NULL, 20, &i2sTaskHandle, 0
     );
 }
 

@@ -2,6 +2,7 @@
 #include <SPI.h>
 #include <TFT_eSPI.h>
 #include "ScopeEngine.h"
+// #include "SignalGenerator.h" // Renuntam la generatorul complex
 
 TFT_eSPI tft = TFT_eSPI();
 
@@ -25,19 +26,20 @@ int gridY[3];
 // Variabile Trigger
 const int triggerLevel = 2000; 
 
-// --- Configurare Generator Semnal ---
+// --- Configurare Generator Semnal (In Loop) ---
 enum SignalType {
   SIGNAL_SQUARE,
   SIGNAL_SINE
 };
 SignalType currentSignalType = SIGNAL_SQUARE;
 unsigned long lastModeChangeTime = 0;
-const unsigned long modeChangeInterval = 6000; // 6 secunde
+const unsigned long modeChangeInterval = 6000; 
 
-// Generator
+// Generator Vars
 unsigned long lastSignalTime = 0;
-const unsigned long signalHalfPeriod = 2200; // ~600Hz
-int squareState = 0;
+const unsigned long signalHalfPeriod = 833; // 600Hz
+bool squareState = false;
+
 const unsigned long sineStepInterval = 3; 
 unsigned long lastSineStepTime = 0;
 int sineIndex = 0;
@@ -50,7 +52,6 @@ void precomputeSine() {
 }
 
 void drawGrid() {
-  // Axa Y (Volti)
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setTextSize(1);
   tft.drawString("V", 2, 2); 
@@ -65,30 +66,23 @@ void drawGrid() {
     }
   }
 
-  // Axa X (Timp)
   tft.drawFastHLine(0, GRAPH_HEIGHT, 240, TFT_WHITE); 
   tft.drawString("0", GRAPH_OFFSET_X, GRAPH_HEIGHT + 5);
   
-  // Timpul total = 4.4ms (la 50kHz)
   float totalTimeMs = 4.4; 
-  
   tft.drawFastVLine(GRAPH_OFFSET_X + GRAPH_WIDTH/2, GRAPH_HEIGHT, 5, TFT_WHITE);
   tft.drawFloat(totalTimeMs / 2.0, 1, GRAPH_OFFSET_X + GRAPH_WIDTH/2 - 10, GRAPH_HEIGHT + 5);
-
   tft.drawFastVLine(SCREEN_WIDTH - 1, GRAPH_HEIGHT, 5, TFT_WHITE);
   tft.drawFloat(totalTimeMs, 1, SCREEN_WIDTH - 25, GRAPH_HEIGHT + 5);
-
   tft.drawString("ms", SCREEN_WIDTH - 15, SCREEN_HEIGHT - 10);
 }
 
 void setup() {
   Serial.begin(115200);
-  
   pinMode(TFT_BL, OUTPUT);
   digitalWrite(TFT_BL, HIGH);
-  pinMode(DAC_PIN, OUTPUT); 
+  pinMode(DAC_PIN, OUTPUT); // Important pentru dacWrite initial
   
-  // Initializare Display
   tft.init();
   tft.setRotation(1);
   tft.fillScreen(TFT_BLACK);
@@ -98,48 +92,45 @@ void setup() {
 
   for(int i=0; i<GRAPH_WIDTH; i++) oldSignalBuffer[i] = GRAPH_CENTER;
   
-  // Pornim DMA Engine LA FINAL
+  // Pornim doar Osciloscopul (DMA)
   scopeInit();
   scopeStart();
-  Serial.println("Scope Engine Started");
+  
+  Serial.println("Scope Engine Started. Generator running in Main Loop.");
 }
 
 void loop() {
   unsigned long now = micros();
   unsigned long nowMillis = millis();
 
-  // --- 1. GENERATOR SEMNAL ---
+  // --- 1. SCHIMBARE MOD ---
   if (nowMillis - lastModeChangeTime >= modeChangeInterval) {
     lastModeChangeTime = nowMillis;
     if (currentSignalType == SIGNAL_SQUARE) {
       currentSignalType = SIGNAL_SINE;
     } else {
       currentSignalType = SIGNAL_SQUARE;
-      // Nu mai schimbam modul pinului, ramane DAC
     }
   }
 
+  // --- 2. GENERATOR SEMNAL (Core 1 - Intercalat cu Draw) ---
   if (currentSignalType == SIGNAL_SQUARE) {
-    //lastSignalTime = now;
-    /*if (now - lastSineStepTime >= sineStepInterval) {
-      lastSineStepTime = now;
-      if(now-lastSignalTime>=signalHalfPeriod){
-        lastSignalTime = now;
-        squareState=!squareState;
-      }
-      // Folosim dacWrite si pentru dreptunghiular pentru consistenta
-      dacWrite(DAC_PIN, squareState ? 255 : 0);
-    }*/
-   if (now - lastSineStepTime >= sineStepInterval) {
-    lastSineStepTime = now;
-    if(now-lastSignalTime<signalHalfPeriod/2){
-        squareState=50;
-      }
-      else if(now-lastSignalTime<signalHalfPeriod){
-        squareState=205;
-      }
-      else lastSignalTime = now;
-      dacWrite(DAC_PIN, squareState);
+    // Logica veche "buna": Folosim sineStepInterval pentru granularitate fina
+    // si toggluim manual intre 50 si 205
+    if (now - lastSineStepTime >= sineStepInterval) {
+        lastSineStepTime = now;
+        
+        // Verificam perioada dreptunghiulara (833us * 2 = 1666us total)
+        // signalHalfPeriod e 833
+        if(now - lastSignalTime < signalHalfPeriod) {
+            squareState = false; // LOW (50)
+        } else if (now - lastSignalTime < signalHalfPeriod * 2) {
+            squareState = true;  // HIGH (205)
+        } else {
+            lastSignalTime = now; // Reset perioada
+        }
+        
+        dacWrite(DAC_PIN, squareState ? 205 : 50);
     }
   } 
   else {
@@ -151,14 +142,12 @@ void loop() {
     }
   }
 
-  // --- 2. OSCILOSCOP ---
+  // --- 3. OSCILOSCOP ---
   if (scopeCheckTrigger()) {
     int startIdx = 0;
     bool foundTrigger = false;
     static int triggerMissedCount = 0;
     const int hyst = 50; 
-    
-    // Trigger Robust (Window Lookback)
     const int HYST_WINDOW = 8;
     
     for (int i = HYST_WINDOW + 1; i < ADC_BUFFER_SIZE / 2; i++) {
@@ -169,7 +158,6 @@ void loop() {
                    below_count++;
                }
            }
-           
            if (below_count >= HYST_WINDOW / 2) {
                startIdx = i;
                while (startIdx > 0 && oscilloscopeBuffer[startIdx] > triggerLevel) {
@@ -182,11 +170,8 @@ void loop() {
        }
     }
     
-    if (!foundTrigger) {
-        triggerMissedCount++;
-    }
+    if (!foundTrigger) triggerMissedCount++;
 
-    // Desenam
     if (foundTrigger || triggerMissedCount > 10) {
         if (!foundTrigger) startIdx = 0; 
         
@@ -194,19 +179,16 @@ void loop() {
             int x1 = GRAPH_OFFSET_X + (i - 1);
             int x2 = GRAPH_OFFSET_X + i;
 
-            // Sterge
             int oldY1 = map(oldSignalBuffer[i-1], 50, 4050, GRAPH_HEIGHT, 0);
             int oldY2 = map(oldSignalBuffer[i], 50, 4050, GRAPH_HEIGHT, 0);
             oldY1 = constrain(oldY1, 0, GRAPH_HEIGHT - 1);
             oldY2 = constrain(oldY2, 0, GRAPH_HEIGHT - 1);
             tft.drawLine(x1, oldY1, x2, oldY2, TFT_BLACK);
 
-            // Repair Grid
             if (x2 % 5 == 0) {
               for(int k=0; k<3; k++) tft.drawPixel(x2, gridY[k], TFT_DARKGREY);
             }
 
-            // Deseneaza NOU
             int val1 = oscilloscopeBuffer[startIdx + i - 1];
             int val2 = oscilloscopeBuffer[startIdx + i];
             
@@ -219,7 +201,6 @@ void loop() {
             oldSignalBuffer[i-1] = val1;
         }
         oldSignalBuffer[GRAPH_WIDTH-1] = oscilloscopeBuffer[startIdx + GRAPH_WIDTH - 1];
-        
         if (!foundTrigger) triggerMissedCount = 0; 
     }
   }
