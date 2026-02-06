@@ -23,6 +23,7 @@ uint16_t oldSignalBuffer[GRAPH_WIDTH];
 uint16_t displaySnapshot[GRAPH_WIDTH]; 
 int gridY[3]; 
 uint16_t signalColor = TFT_GREEN; 
+bool showStats = false; // Toggle pentru statistici Vmin/Vmax/Vpp
 
 // Variabile Trigger
 int triggerLevel = 2000; 
@@ -76,6 +77,13 @@ const float LOOP_FREQ = 1000000.0 / 61.0;
 
 // --- FUNCTII AUXILIARE ---
 
+void forceScopeRefresh() {
+    scopeState = STATE_SEARCHING;
+    triggerMissedCount = 100; 
+    triggerIndex = 0;
+    drawIndex = 1;
+}
+
 void updateGenFreq(float freq) {
     genFrequency = freq;
     waveIncrement = (256.0 * freq) / LOOP_FREQ;
@@ -119,12 +127,13 @@ void drawGrid() {
 
 void printHelp() {
   Serial.println("\n===== LISTA COMENZI DISPONIBILE =====");
-  Serial.println("gen [sine|sqr|tri|saw]  -> Schimba forma de unda a generatorului.");
-  Serial.println("genf [20.0 - 650.0]     -> Seteaza frecventa generatorului in Hz.");
-  Serial.println("samp [10.0 - 150.0]     -> Seteaza rata de esantionare in kSPS.");
-  Serial.println("trig [on|off|auto]      -> Seteaza modul de sincronizare (Trigger).");
-  Serial.println("triglev [0.0 - 3.3]     -> Seteaza pragul de trigger in Volti.");
-  Serial.println("color [verde|rosu|galben|alb|mov] -> Schimba culoarea graficului.");
+  Serial.println("gen [sine|sqr|tri|saw]  -> Forma unda generator.");
+  Serial.println("genf [20.0 - 650.0]     -> Frecventa generator (Hz).");
+  Serial.println("samp [10.0 - 150.0]     -> Sample Rate (kSPS).");
+  Serial.println("trig [on|off|auto]      -> Mod Trigger.");
+  Serial.println("triglev [0.0 - 3.3]     -> Nivel Trigger (V).");
+  Serial.println("color [verde|rosu...]   -> Culoare semnal.");
+  Serial.println("stats                   -> Toggle Vmin/Vmax/Vpp pe ecran.");
   Serial.println("help                    -> Afiseaza aceasta lista.");
   Serial.println("=====================================");
 }
@@ -142,7 +151,8 @@ void printMenu() {
     case SIGNAL_TRIANGLE: Serial.print("TRI"); break;
     case SIGNAL_SAWTOOTH: Serial.print("SAW"); break;
   }
-  Serial.print(" @ "); Serial.print(genFrequency, 1); Serial.println(" Hz");
+  Serial.print(" @ "); Serial.print(genFrequency, 1); Serial.print(" Hz");
+  Serial.print(" | Stats: "); Serial.println(showStats ? "ON" : "OFF");
   Serial.println("Tastati 'help' pentru lista completa de comenzi.");
 }
 
@@ -153,19 +163,22 @@ void handleSerial() {
     if (c == '\n') {
       serialBuffer.trim(); serialBuffer.toLowerCase();
       
-      if (serialBuffer == "help") {
-        printHelp();
-      }
+      bool cmdProcessed = false;
+
+      if (serialBuffer == "help") { printHelp(); cmdProcessed = true; }
       else if (serialBuffer.startsWith("gen ")) {
         String mode = serialBuffer.substring(4);
         if (mode == "sqr") currentSignalType = SIGNAL_SQUARE;
         else if (mode == "sine") currentSignalType = SIGNAL_SINE;
         else if (mode == "tri") currentSignalType = SIGNAL_TRIANGLE;
         else if (mode == "saw") currentSignalType = SIGNAL_SAWTOOTH;
+        Serial.print("Generator: "); Serial.println(mode);
+        cmdProcessed = true;
       }
       else if (serialBuffer.startsWith("genf ")) {
         float f = serialBuffer.substring(5).toFloat();
-        if (f >= 20.0 && f <= 650.0) updateGenFreq(f);
+        if (f >= 20.0 && f <= 650.0) { updateGenFreq(f); cmdProcessed = true; }
+        else Serial.println("EROARE: Range 20 - 650 Hz.");
       }
       else if (serialBuffer.startsWith("color ")) {
         String col = serialBuffer.substring(6);
@@ -174,22 +187,35 @@ void handleSerial() {
         else if (col == "alb") signalColor = TFT_WHITE;
         else if (col == "rosu") signalColor = TFT_RED;
         else if (col == "mov") signalColor = TFT_MAGENTA;
+        Serial.print("Culoare: "); Serial.println(col);
+        cmdProcessed = true;
       }
       else if (serialBuffer.startsWith("trig ")) {
         String t = serialBuffer.substring(5);
         if (t == "on") { currentTriggerState = TRIG_NORMAL; triggerMode = "NORMAL (ON)"; }
         else if (t == "off") { currentTriggerState = TRIG_NONE; triggerMode = "NONE (OFF)"; }
         else if (t == "auto") { currentTriggerState = TRIG_AUTO; triggerMode = "AUTO"; }
+        Serial.print("Trigger Mode: "); Serial.println(triggerMode);
+        cmdProcessed = true;
       }
       else if (serialBuffer.startsWith("triglev ")) {
         float valV = serialBuffer.substring(8).toFloat();
-        if (valV >= 0.0 && valV <= 3.3) triggerLevel = (int)((valV * 4095.0) / 3.3);
+        if (valV >= 0.0 && valV <= 3.3) { triggerLevel = (int)((valV * 4095.0) / 3.3); Serial.print("Trigger Level: "); Serial.println(valV); }
+        cmdProcessed = true;
       }
       else if (serialBuffer.startsWith("samp ")) {
         float rateK = serialBuffer.substring(5).toFloat();
-        if (rateK >= 10.0 && rateK <= 150.0) { samplingRateKSPS = rateK; scopeSetRate((uint32_t)(rateK * 1000)); drawGrid(); }
+        if (rateK >= 10.0 && rateK <= 150.0) { samplingRateKSPS = rateK; scopeSetRate((uint32_t)(rateK * 1000)); drawGrid(); cmdProcessed = true; }
+      }
+      else if (serialBuffer == "stats") {
+        showStats = !showStats;
+        Serial.print("Stats Overlay: "); Serial.println(showStats ? "ON" : "OFF");
+        // Stergem zona de stats daca le oprim
+        if (!showStats) tft.fillRect(160, 0, 80, 40, TFT_BLACK);
+        cmdProcessed = true;
       }
       
+      if (cmdProcessed) forceScopeRefresh();
       if (serialBuffer != "help") printMenu(); 
       serialBuffer = ""; 
     } else if (serialBuffer.length() < 20) serialBuffer += c;
@@ -236,32 +262,18 @@ void loop() {
         bool foundTrigger = false;
         if (currentTriggerState == TRIG_NONE) { triggerIndex = 0; foundTrigger = true; } 
         else {
-            // --- 2. MOD AUTO sau NORMAL (ON) ---
-            // Relaxam histerezisul pentru stabilitate mai buna
-            const int hyst = 50; 
-            const int HYST_WINDOW = 8; 
-            
+            const int hyst = 50; const int HYST_WINDOW = 8;
             for (int i = HYST_WINDOW + 1; i < ADC_BUFFER_SIZE / 2; i++) {
                if (oscilloscopeBuffer[i] > (triggerLevel + hyst)) {
                    int below_count = 0;
-                   for (int w = 1; w <= HYST_WINDOW; w++) {
-                       if (oscilloscopeBuffer[i - w] < (triggerLevel - hyst)) {
-                           below_count++;
-                       }
-                   }
+                   for (int w = 1; w <= HYST_WINDOW; w++) { if (oscilloscopeBuffer[i - w] < (triggerLevel - hyst)) below_count++; } 
                    if (below_count >= HYST_WINDOW / 2) {
                        triggerIndex = i;
-                       // Backtracking pentru a gasi punctul exact de trecere
-                       while (triggerIndex > 0 && oscilloscopeBuffer[triggerIndex] > triggerLevel) {
-                           triggerIndex--;
-                       }
-                       foundTrigger = true;
-                       triggerMissedCount = 0;
-                       break;
+                       while (triggerIndex > 0 && oscilloscopeBuffer[triggerIndex] > triggerLevel) triggerIndex--;
+                       foundTrigger = true; triggerMissedCount = 0; break;
                    }
                }
             }
-            
             if (!foundTrigger) triggerMissedCount++;
         }
         bool shouldDraw = false;
@@ -272,6 +284,28 @@ void loop() {
       }
       break;
     case STATE_DRAWING:
+      if (drawIndex == 1 && showStats) {
+          // Calculam Stats o singura data pe frame (cand suntem la primul pixel)
+          uint16_t minVal = 4095;
+          uint16_t maxVal = 0;
+          for(int k=0; k<GRAPH_WIDTH; k++) {
+              if (displaySnapshot[k] < minVal) minVal = displaySnapshot[k];
+              if (displaySnapshot[k] > maxVal) maxVal = displaySnapshot[k];
+          }
+          float vMin = (minVal * 3.3) / 4095.0;
+          float vMax = (maxVal * 3.3) / 4095.0;
+          float vPp = vMax - vMin;
+          
+          tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+          tft.setTextSize(1);
+          tft.setCursor(170, 5); 
+          tft.print("Vmin:"); tft.println(vMin);
+          tft.setCursor(170, 15);
+          tft.print("Vmax:"); tft.println(vMax);
+          tft.setCursor(170, 25);
+          tft.print("Vpp :"); tft.println(vPp);
+      }
+
       if (drawIndex < GRAPH_WIDTH) {
           int i = drawIndex; int x1 = GRAPH_OFFSET_X + (i - 1); int x2 = GRAPH_OFFSET_X + i;
           int oldY1 = map(oldSignalBuffer[i-1], 50, 4050, GRAPH_HEIGHT, 0);
