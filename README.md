@@ -22,7 +22,7 @@ Provocarea principală a fost sincronizarea perfectă între generarea unui semn
 
 ## 🎮 Mod de Utilizare
 
-**ESP32 Mini Oscilloscope** este un sistem "headless" controlat prin interfață serială (CLI), dar cu afișare grafică pe un ecran TFT dedicat.
+**ESP32 Mini Oscilloscope** este un sistem **controlat exclusiv prin interfață serială (CLI)**, dar cu afișare grafică pe un ecran TFT dedicat.
 
 Obiectivul sistemului este: **Vizualizarea semnalelor electrice (0 - 3.3V).**
 
@@ -32,11 +32,11 @@ Obiectivul sistemului este: **Vizualizarea semnalelor electrice (0 - 3.3V).**
 *   **Vizualizare:** Urmărește ecranul TFT pentru forma de undă și parametrii semnalului.
 
 ### Caracteristici:
-*   🚦 **Rată de Eșantionare Variabilă** - Ajustabilă între 10 kSPS și 150 kSPS.
-*   ❤️ **Generator de Semnal Integrat** - Poate genera Sinus, Dreptunghiular, Triunghiular și Sawtooth (20Hz - 650Hz).
-*   ⏱️ **Triggering Avansat** - Moduri AUTO, NORMAL (ON) și OFF, cu histerezis software configurabil.
-*   💾 **Statistici Live** - Calcul în timp real pentru Vmin, Vmax și Vpp (Peak-to-Peak).
-*   ⚙️ **Burst Mode** - Arhitectură unică ce garantează un semnal generat fără jitter în timpul achiziției.
+*  **Rată de Eșantionare Variabilă** - Ajustabilă între 10 kSPS și 150 kSPS.
+*  **Generator de Semnal Integrat** - Poate genera Sinus, Dreptunghiular, Triunghiular și Sawtooth (20Hz - 650Hz).
+*  **Triggering Avansat** - Moduri AUTO, NORMAL (ON) și OFF, cu histerezis software configurabil.
+*  **Statistici Live** - Calcul în timp real pentru Vmin, Vmax și Vpp (Peak-to-Peak).
+*  **Burst Mode** - Arhitectură unică ce garantează un semnal generat fără jitter în timpul achiziției.
 
 <br/>
 
@@ -47,7 +47,7 @@ Setup-ul fizic este compus din următoarele:
 *   💥 1 Placă de dezvoltare ESP32 (WROOM-32)
 *   💥 1 Display TFT IPS 1.3 inch (Driver ST7789, 240x240 pixeli)
 *   💥 Fire de legătură (Jumpers)
-*   💥 (Opțional) Rezistențe/Potențiometru pentru atenuarea semnalului de test
+*   💥 Rezistențe/Potențiometru pentru atenuarea semnalului de test
 
 ### Conexiuni
 *   **DAC (Ieșire):** GPIO 25
@@ -56,6 +56,7 @@ Setup-ul fizic este compus din următoarele:
 *   **Display SPI:** Pini standard VSPI (MOSI, SCLK, CS, DC, RST).
 
 ### Diagramă Proiect
+Obs: In diagrama pinii de la ecran nu sunt corecti deoarece componenta din diagrama este pe I2C si in realitate este SPI.
 <div align="center">
   <img src="./diagrama.png" alt="Diagrama Proiect" width="800">
 </div>
