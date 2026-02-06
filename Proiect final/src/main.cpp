@@ -37,7 +37,7 @@ enum SignalType {
 SignalType currentSignalType = SIGNAL_SINE;
 
 // Parametri dinamici generator
-float genFrequency = 683.0; 
+float genFrequency = 650.0; 
 float waveIncrement = 10.666; 
 int squareHalfPeriodTicks = 12; 
 
@@ -236,18 +236,32 @@ void loop() {
         bool foundTrigger = false;
         if (currentTriggerState == TRIG_NONE) { triggerIndex = 0; foundTrigger = true; } 
         else {
-            const int hyst = 50; const int HYST_WINDOW = 8;
+            // --- 2. MOD AUTO sau NORMAL (ON) ---
+            // Relaxam histerezisul pentru stabilitate mai buna
+            const int hyst = 50; 
+            const int HYST_WINDOW = 8; 
+            
             for (int i = HYST_WINDOW + 1; i < ADC_BUFFER_SIZE / 2; i++) {
                if (oscilloscopeBuffer[i] > (triggerLevel + hyst)) {
                    int below_count = 0;
-                   for (int w = 1; w <= HYST_WINDOW; w++) { if (oscilloscopeBuffer[i - w] < (triggerLevel - hyst)) below_count++; }
+                   for (int w = 1; w <= HYST_WINDOW; w++) {
+                       if (oscilloscopeBuffer[i - w] < (triggerLevel - hyst)) {
+                           below_count++;
+                       }
+                   }
                    if (below_count >= HYST_WINDOW / 2) {
                        triggerIndex = i;
-                       while (triggerIndex > 0 && oscilloscopeBuffer[triggerIndex] > triggerLevel) triggerIndex--;
-                       foundTrigger = true; triggerMissedCount = 0; break;
+                       // Backtracking pentru a gasi punctul exact de trecere
+                       while (triggerIndex > 0 && oscilloscopeBuffer[triggerIndex] > triggerLevel) {
+                           triggerIndex--;
+                       }
+                       foundTrigger = true;
+                       triggerMissedCount = 0;
+                       break;
                    }
                }
             }
+            
             if (!foundTrigger) triggerMissedCount++;
         }
         bool shouldDraw = false;
