@@ -1,82 +1,137 @@
-#2
-Facem un osciloscop folosind esp32, cu mai multe moduri de setare pentru frecventa de esantionare, avand procesare de semnal astfel incat semnalul captat sa fie afisat corect pe display
+# ESP32 Mini Oscilloscope
 
-#3
-Bill of Materials:
-ESP32 board
-fire
-panou de display mic, pana la ~ 200*200 pixeli
-butoane sau joystick
+<div align="center">
+  <h3>Un instrument de vizualizare a semnalelor analogice în timp real</h3>
+</div>
+
+<br/>
+
+<!-- Imaginea de ansamblu a setup-ului -->
+<div align="center">
+  <img src="./poza.jpeg" alt="Setup Hardware" width="600">
+</div>
+<br/>
+
+Acest instrument a fost creat ca proiect pentru cursul de **Introducere în Robotică**, în anul 3 la Facultatea de Matematică și Informatică, Universitatea din București. Este scris în C++ (PlatformIO) folosind capabilitățile avansate ale microcontrolerului ESP32 și a fost dezvoltat pe parcursul unei luni.
+
+Am ales acest proiect deoarece am vrut să depășesc limitările funcției standard `analogRead()` și să explorez arhitectura internă a ESP32 (DMA, I2S, Dual-Core). Obiectivul a fost crearea unui dispozitiv capabil să vizualizeze forme de undă rapid și precis, fără a depinde de echipamente de laborator costisitoare.
+
+Provocarea principală a fost sincronizarea perfectă între generarea unui semnal de test și achiziția acestuia, rezolvată printr-o arhitectură software personalizată ("Burst Mode").
+
+<br/>
+
+## 🎮 Mod de Utilizare
+
+**ESP32 Mini Oscilloscope** este un sistem "headless" controlat prin interfață serială (CLI), dar cu afișare grafică pe un ecran TFT dedicat.
+
+Obiectivul sistemului este: **Vizualizarea semnalelor electrice (0 - 3.3V).**
+
+### Cum se folosește:
+*   **Interfața:** Conectează ESP32 la PC și deschide Monitorul Serial (Baud 115200).
+*   **Comenzi:** Tastează comenzi precum `help`, `trig on`, `gen sine` pentru a controla aparatul.
+*   **Vizualizare:** Urmărește ecranul TFT pentru forma de undă și parametrii semnalului.
+
+### Caracteristici:
+*   🚦 **Rată de Eșantionare Variabilă** - Ajustabilă între 10 kSPS și 150 kSPS.
+*   ❤️ **Generator de Semnal Integrat** - Poate genera Sinus, Dreptunghiular, Triunghiular și Sawtooth (20Hz - 650Hz).
+*   ⏱️ **Triggering Avansat** - Moduri AUTO, NORMAL (ON) și OFF, cu histerezis software configurabil.
+*   💾 **Statistici Live** - Calcul în timp real pentru Vmin, Vmax și Vpp (Peak-to-Peak).
+*   ⚙️ **Burst Mode** - Arhitectură unică ce garantează un semnal generat fără jitter în timpul achiziției.
+
+<br/>
+
+## 🛠 Componente Hardware
+
+Setup-ul fizic este compus din următoarele:
+
+*   💥 1 Placă de dezvoltare ESP32 (WROOM-32)
+*   💥 1 Display TFT IPS 1.3 inch (Driver ST7789, 240x240 pixeli)
+*   💥 Fire de legătură (Jumpers)
+*   💥 (Opțional) Rezistențe/Potențiometru pentru atenuarea semnalului de test
+
+### Conexiuni
+*   **DAC (Ieșire):** GPIO 25
+*   **ADC (Intrare):** GPIO 34
+*   **PWM Test (Hardware):** GPIO 27, 14, 12
+*   **Display SPI:** Pini standard VSPI (MOSI, SCLK, CS, DC, RST).
+
+### Diagramă Proiect
+<div align="center">
+  <img src="./diagrama.png" alt="Diagrama Proiect" width="800">
+</div>
+
+<br/>
+
+## 📺 Video Youtube
+
+<div align="center">
+  <a href="#">
+    <!-- Adaugă link video aici dacă există -->
+    <img src="https://via.placeholder.com/600x338.png?text=Demo+Video+Osciloscop" alt="Oscilloscope Demo" width="600">
+  </a> 
+</div>
+
+<br/>
 
 
+Mai jos este prezentarea tehnică a proiectului ESP32 Mini Oscilloscope.
 
-folosim DAC intern esp32 pt generarea semnalului analogic pe care il afisam
+## Arhitectură Software
 
-#4
-nu folosim tutorial extern
+La baza proiectului stă o arhitectură **Dual-Core Asimetrică** combinată cu un Scheduler de tip **"Burst & Snapshot"**.
 
-#5
- ##1 system boundary este breadboard-ul pe care sta esp-ul, eventual incluzand un generator de semnale daca in loc sa folosim dac-ul intern adaugam un generator extern. Totul e wired, nu avem comunicare in afara camerei
+Sistemul este împărțit între cele două nuclee ale procesorului:
 
- ##2 inteligenta este in intregime in esp32
- ##3 timing-ul si setarea de sampling si procesarea de sample-uri pentru a fi afisate in mod folositor e cea mai grea problema tehnica
- ##4 minimum demo ar fi captarea unui semnal continuu in adc-ul esp-ului, mai apoi afisarea semnalului pe screen la nivelul sau de voltaj in range-ul 0-3.3v
- ##5 nu poate fi doar un tutorial deoarece reprezinta o solutie specifica pentru platforma esp32 cu o anumita arhitectura aleasa, trebuie sa avem functii non-blocante, mecanism de trigger pentru semnal pentru a fi afisat corect pe ecran. Tutorialele sunt facute pentru componente individuale precum adc-ul, dma-ul si timere, dar integrarea lor in sistem depaseste un tutorial simplu si ar intra mai degraba in nivelul unui tutorial complex de cateva ore.
- ##6 da, este necesar ca hardware peste arduino deoarece arduino nu are capabilitatea necesara dma sau dac pentru proiect
+1.  **Core 0 (Scope Engine):**
+    *   Dedicat exclusiv achiziției de date.
+    *   Folosește perifericul **I2S** în mod ADC pentru a transfera datele direct în RAM prin **DMA (Direct Memory Access)**.
+    *   Nu consumă cicluri de procesor pentru citirea efectivă a voltajului, permițând viteze mari (până la 150 kSPS).
 
+2.  **Core 1 (Application Logic):**
+    *   Rulează bucla principală `loop()`, interfața serială și desenarea pe ecran.
+    *   Implementează logica de "Burst Generation" pentru stabilitate.
 
- # Documentatie display
- Modul display color IPS de 1.3 inch, compatibil Arduino si alte placi de dezvoltare. Atentie! Suporta tensiune de 3.3V, atat logica cat si de alimentare. Folositi un convertor de nivel logic daca este necasara folosirea cu placi pe 5V.
+### Burst Mode & Snapshot Logic
 
-Acest afisaj comunica prin SPI iar pixelii sunt controlabili individual, avand o rezolutie de 240x240 pixeli de tip RGB. Ecranul LCD este unul TFT cu culori realiste si IPS, lucru ce permite vizualizarea corecta a acestuia din toate unghiurile.
+Pentru a rezolva problema clasică a "jitter-ului" (instabilitatea semnalului generat când procesorul face și alte sarcini), am implementat o structură de execuție în două faze:
 
-Dispune de retroiluminare de fundal controlabila prin pinul dedicat BLK (Low Level este OFF).
+1.  **Faza BURST (Critical Section):**
+    *   Timp de ~25ms, procesorul **doar generează semnal** (DAC) într-o buclă strânsă, cu timing precis la microsecundă.
+    *   În acest timp, DMA-ul (Core 0) umple buffer-ul cu datele perfecte.
+2.  **Faza SNAPSHOT (Relaxed Section):**
+    *   După ce buffer-ul este plin, oprim generarea critică.
+    *   Copiem datele, căutăm Trigger-ul software, calculăm statisticile (Vpp) și desenăm graficul pe ecran.
+    *   Verificăm comenzile venite prin Serial.
 
- 
+## Comenzi Disponibile (CLI)
 
-Specificatii:
-Tensiune alimentare: 3.3VDC
+Interfața serială permite controlul complet fără a recompila codul.
 
-Tensiune logica: 3.3VDC (NU este compatibil cu 5V! Folisiti convertor de nivel logic)
+| Comandă | Parametri | Descriere |
+| :--- | :--- | :--- |
+| `gen` | `sine`, `sqr`, `tri`, `saw` | Schimbă forma de undă a generatorului intern. |
+| `genf` | `20.0` - `650.0` | Setează frecvența generatorului (Hz). |
+| `trig` | `on`, `off`, `auto` | Setează modul de sincronizare. |
+| `triglev`| `0.0` - `3.3` | Setează nivelul de trigger (Volți). |
+| `samp` | `10.0` - `150.0` | Setează rata de eșantionare (kSPS). |
+| `color` | `verde`, `rosu`, etc. | Schimbă culoarea traseului pe ecran. |
+| `stats` | (fără) | Activează/Dezactivează afișarea Vmin/Vmax/Vpp. |
+| `help` | (fără) | Afișează lista comenzilor. |
 
-Integrat: ST7789VW
+### Optimizări Tehnice
 
-Numar pini: 7
+*   **Display Slicing:** Desenarea pe ecran (operațiune lentă prin SPI) a fost optimizată pentru a minimiza timpul mort, folosind funcții grafice eficiente din biblioteca `TFT_eSPI`.
+*   **Buffer Management:** Se utilizează buffere duble (Ping-Pong) la nivel de DMA și un buffer "Snapshot" la nivel de aplicație pentru a preveni efectul de "screen tearing" (ruperea imaginii).
+*   **Non-Blocking Serial:** Parserul de comenzi este scris caracter-cu-caracter, eliminând funcțiile blocante precum `readStringUntil`, asigurând fluiditatea sistemului.
 
-Comunicare: SPI
+### Fizica și Triggering-ul
 
-Dimensiune ecran: 1.3 inch
+Sincronizarea imaginii (Triggering) este realizată software printr-un algoritm de **Histerezis**.
+*   Nu este suficient ca semnalul să treacă de un prag (ex: 1.5V).
+*   Algoritmul verifică o fereastră de eșantioane anterioare (`HYST_WINDOW`) pentru a confirma că semnalul este într-adevăr în creștere (Rising Edge) și nu este doar zgomot.
 
-Rezolutie: 240 x 240 pixeli
+## Concluzii
 
-Culoare: RGB
-
-Tip: LCD TFT, IPS
-
-Temperatura operare: -20 - +70 grade C, fara condens
-
-Dimensiuni mm: 39 x 28mm
-
- 
-
-Conectare:
-GND: Ground, minus
-
-VCC: 3.3VDC, plus
-
-SCL: Pin SCL, Serial Clock
-
-SDA: Pin SDA, Serial Data
-
-RES: Pin Reset
-
-DC: Pin Data Control
-
-BLK: Pin control retroiluminare (backlight)
-
- 
-
-Utilizare:
-Exemplul de utilizare este dat cu o placa ESP32 (nu necesita convertor de nivel logic, operand la 3.3V) conectata la afisaj, utilizand mediul Arduino IDE.
-
-Instaleaza biblioteca TFT_eSPI_ES32Lab by Bodmer.
+*   Proiectul demonstrează capacitatea ESP32 de a funcționa ca un sistem de achiziție de date performant, depășind cu mult capabilitățile unui Arduino standard.
+*   Separarea sarcinilor pe nuclee (Core 0 vs Core 1) și utilizarea DMA sunt esențiale pentru aplicații de timp real ("Real-Time").
+*   Arhitectura "Burst Mode" este o soluție creativă pentru a obține un generator de semnal curat fără hardware extern dedicat.
