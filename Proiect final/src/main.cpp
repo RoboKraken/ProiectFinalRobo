@@ -23,7 +23,7 @@ uint16_t oldSignalBuffer[GRAPH_WIDTH];
 uint16_t displaySnapshot[GRAPH_WIDTH]; 
 int gridY[3]; 
 uint16_t signalColor = TFT_GREEN; 
-bool showStats = false; // Toggle pentru statistici Vmin/Vmax/Vpp
+bool showStats = false; 
 
 // Variabile Trigger
 int triggerLevel = 2000; 
@@ -37,66 +37,38 @@ enum SignalType {
 };
 SignalType currentSignalType = SIGNAL_SINE;
 
-// Parametri dinamici generator
-float genFrequency = 650.0; 
-float waveIncrement = 10.666; 
-int squareHalfPeriodTicks = 12; 
+// Parametri Generator
+float genFrequency = 683.0; 
+float waveIncrement = 0; 
+uint32_t dacPeriodMicros = 25; // Default 40kHz
 
-// Index comun pentru formele de unda
+// Index comun
 float waveIndex = 0.0; 
 
-// Tabele de valori (LUT)
+// Tabele LUT
 uint8_t sineTable[256];
 uint8_t triTable[256];
 uint8_t sawTable[256];
 
-// --- Variabile State Machine Osciloscop ---
-enum ScopeState {
-  STATE_SEARCHING,
-  STATE_DRAWING
-};
-ScopeState scopeState = STATE_SEARCHING;
-int drawIndex = 1;      
-int triggerIndex = 0;   
-int triggerMissedCount = 0; 
-
-// Variabile Sistem Extra
+// Variabile Sistem
 String triggerMode = "AUTO"; 
 float samplingRateKSPS = 50.0; 
 
-enum TriggerState {
-  TRIG_AUTO,
-  TRIG_NORMAL, 
-  TRIG_NONE    
-};
+enum TriggerState {TRIG_AUTO, TRIG_NORMAL, TRIG_NONE };
 TriggerState currentTriggerState = TRIG_AUTO;
-
-// --- Loop Regulator ---
-const unsigned long LOOP_TARGET_MICROS = 61; 
-const float LOOP_FREQ = 1000000.0 / 61.0; 
 
 // --- FUNCTII AUXILIARE ---
 
-void forceScopeRefresh() {
-    scopeState = STATE_SEARCHING;
-    triggerMissedCount = 100; 
-    triggerIndex = 0;
-    drawIndex = 1;
-}
-
 void updateGenFreq(float freq) {
     genFrequency = freq;
-    waveIncrement = (256.0 * freq) / LOOP_FREQ;
-    squareHalfPeriodTicks = (int)(LOOP_FREQ / (2.0 * freq));
-    if (squareHalfPeriodTicks < 1) squareHalfPeriodTicks = 1;
+    dacPeriodMicros = 25; 
+    waveIncrement = (256.0 * freq) / 40000.0;
 }
 
 void precomputeWaveforms() {
   for(int i=0; i<256; i++) {
     sineTable[i] = 128 + 100 * sin(i * 2 * PI / 256);
-    float triVal;
-    if (i < 128) triVal = -1.0 + (i / 64.0); 
-    else triVal = 1.0 - ((i - 128) / 64.0); 
+    float triVal = (i < 128) ? -1.0 + (i/64.0) : 1.0 - ((i-128)/64.0);
     triTable[i] = 128 + (int)(100 * triVal);
     float sawVal = -1.0 + (i / 128.0);
     sawTable[i] = 128 + (int)(100 * sawVal);
@@ -127,12 +99,12 @@ void drawGrid() {
 
 void printHelp() {
   Serial.println("\n===== LISTA COMENZI DISPONIBILE =====");
-  Serial.println("gen [sine|sqr|tri|saw]  -> Forma unda generator.");
-  Serial.println("genf [20.0 - 650.0]     -> Frecventa generator (Hz).");
-  Serial.println("samp [10.0 - 150.0]     -> Sample Rate (kSPS).");
-  Serial.println("trig [on|off|auto]      -> Mod Trigger.");
-  Serial.println("triglev [0.0 - 3.3]     -> Nivel Trigger (V).");
-  Serial.println("color [verde|rosu...]   -> Culoare semnal.");
+  Serial.println("gen [sine|sqr|tri|saw]  -> Schimba forma de unda a generatorului.");
+  Serial.println("genf [20.0 - 650.0]     -> Seteaza frecventa generatorului in Hz.");
+  Serial.println("samp [10.0 - 150.0]     -> Seteaza rata de esantionare in kSPS.");
+  Serial.println("trig [on|off|auto]      -> Seteaza modul de sincronizare (Trigger).");
+  Serial.println("triglev [0.0 - 3.3]     -> Seteaza pragul de trigger in Volti.");
+  Serial.println("color [verde|rosu|galben|alb|mov] -> Schimba culoarea graficului.");
   Serial.println("stats                   -> Toggle Vmin/Vmax/Vpp pe ecran.");
   Serial.println("help                    -> Afiseaza aceasta lista.");
   Serial.println("=====================================");
@@ -141,18 +113,23 @@ void printHelp() {
 void printMenu() {
   Serial.println("\n--- STATUS SISTEM ---");
   float trigV = (triggerLevel * 3.3) / 4095.0;
-  Serial.print("Trigger: "); Serial.print(triggerMode);
-  Serial.print(" @ "); Serial.print(trigV, 1); Serial.println(" V");
-  Serial.print("Sampling: "); Serial.print(samplingRateKSPS, 1); Serial.println(" kSPS");
-  Serial.print("Generator: "); 
+  Serial.print("[TRIG] Mode: "); Serial.print(triggerMode);
+  Serial.print(" | Level: "); Serial.print(trigV, 1); Serial.println(" V");
+  
+  Serial.print("[ADC]  Rate: "); Serial.print(samplingRateKSPS, 1); Serial.println(" kSPS");
+  
+  Serial.print("[GEN]  Wave: "); 
   switch(currentSignalType) {
-    case SIGNAL_SQUARE:   Serial.print("SQR"); break;
-    case SIGNAL_SINE:     Serial.print("SINE"); break;
-    case SIGNAL_TRIANGLE: Serial.print("TRI"); break;
-    case SIGNAL_SAWTOOTH: Serial.print("SAW"); break;
+    case SIGNAL_SQUARE:   Serial.print("DREPTUNGHIULAR (SQR)"); break;
+    case SIGNAL_SINE:     Serial.print("SINUSOIDAL (SINE)"); break;
+    case SIGNAL_TRIANGLE: Serial.print("TRIUNGHIULAR (TRI)"); break;
+    case SIGNAL_SAWTOOTH: Serial.print("FERASTRAU (SAW)"); break;
   }
-  Serial.print(" @ "); Serial.print(genFrequency, 1); Serial.print(" Hz");
-  Serial.print(" | Stats: "); Serial.println(showStats ? "ON" : "OFF");
+  Serial.print(" | Freq: "); Serial.print(genFrequency, 1); Serial.println(" Hz");
+  
+  Serial.print("[UI]   Stats: "); Serial.println(showStats ? "ON" : "OFF");
+  
+  Serial.println("--------------------------------");
   Serial.println("Tastati 'help' pentru lista completa de comenzi.");
 }
 
@@ -162,164 +139,164 @@ void handleSerial() {
     char c = (char)Serial.read();
     if (c == '\n') {
       serialBuffer.trim(); serialBuffer.toLowerCase();
-      
-      bool cmdProcessed = false;
-
-      if (serialBuffer == "help") { printHelp(); cmdProcessed = true; }
+      bool processed = false;
+      if (serialBuffer == "help") { printHelp(); processed = true; }
+      else if (serialBuffer == "stats") { 
+          showStats = !showStats; 
+          if(!showStats) tft.fillRect(160, 0, 80, 40, TFT_BLACK); 
+          processed = true; 
+      }
       else if (serialBuffer.startsWith("gen ")) {
-        String mode = serialBuffer.substring(4);
-        if (mode == "sqr") currentSignalType = SIGNAL_SQUARE;
-        else if (mode == "sine") currentSignalType = SIGNAL_SINE;
-        else if (mode == "tri") currentSignalType = SIGNAL_TRIANGLE;
-        else if (mode == "saw") currentSignalType = SIGNAL_SAWTOOTH;
-        Serial.print("Generator: "); Serial.println(mode);
-        cmdProcessed = true;
+        String m = serialBuffer.substring(4);
+        if (m == "sqr") currentSignalType = SIGNAL_SQUARE;
+        else if (m == "sine") currentSignalType = SIGNAL_SINE;
+        else if (m == "tri") currentSignalType = SIGNAL_TRIANGLE;
+        else if (m == "saw") currentSignalType = SIGNAL_SAWTOOTH;
+        processed = true;
       }
       else if (serialBuffer.startsWith("genf ")) {
         float f = serialBuffer.substring(5).toFloat();
-        if (f >= 20.0 && f <= 650.0) { updateGenFreq(f); cmdProcessed = true; }
-        else Serial.println("EROARE: Range 20 - 650 Hz.");
+        if (f >= 20 && f <= 650) { updateGenFreq(f); processed = true; }
       }
       else if (serialBuffer.startsWith("color ")) {
-        String col = serialBuffer.substring(6);
-        if (col == "verde") signalColor = TFT_GREEN;
-        else if (col == "galben") signalColor = TFT_YELLOW;
-        else if (col == "alb") signalColor = TFT_WHITE;
-        else if (col == "rosu") signalColor = TFT_RED;
-        else if (col == "mov") signalColor = TFT_MAGENTA;
-        Serial.print("Culoare: "); Serial.println(col);
-        cmdProcessed = true;
-      }
-      else if (serialBuffer.startsWith("trig ")) {
-        String t = serialBuffer.substring(5);
-        if (t == "on") { currentTriggerState = TRIG_NORMAL; triggerMode = "NORMAL (ON)"; }
-        else if (t == "off") { currentTriggerState = TRIG_NONE; triggerMode = "NONE (OFF)"; }
-        else if (t == "auto") { currentTriggerState = TRIG_AUTO; triggerMode = "AUTO"; }
-        Serial.print("Trigger Mode: "); Serial.println(triggerMode);
-        cmdProcessed = true;
-      }
-      else if (serialBuffer.startsWith("triglev ")) {
-        float valV = serialBuffer.substring(8).toFloat();
-        if (valV >= 0.0 && valV <= 3.3) { triggerLevel = (int)((valV * 4095.0) / 3.3); Serial.print("Trigger Level: "); Serial.println(valV); }
-        cmdProcessed = true;
+        String c = serialBuffer.substring(6);
+        if (c == "rosu") signalColor = TFT_RED;
+        else if (c == "verde") signalColor = TFT_GREEN;
+        else if (c == "galben") signalColor = TFT_YELLOW;
+        else if (c == "alb") signalColor = TFT_WHITE;
+        else if (c == "mov") signalColor = TFT_MAGENTA;
+        processed = true;
       }
       else if (serialBuffer.startsWith("samp ")) {
-        float rateK = serialBuffer.substring(5).toFloat();
-        if (rateK >= 10.0 && rateK <= 150.0) { samplingRateKSPS = rateK; scopeSetRate((uint32_t)(rateK * 1000)); drawGrid(); cmdProcessed = true; }
+          float r = serialBuffer.substring(5).toFloat();
+          if (r >= 10 && r <= 150) { samplingRateKSPS = r; scopeSetRate(r*1000); drawGrid(); processed = true; }
       }
-      else if (serialBuffer == "stats") {
-        showStats = !showStats;
-        Serial.print("Stats Overlay: "); Serial.println(showStats ? "ON" : "OFF");
-        // Stergem zona de stats daca le oprim
-        if (!showStats) tft.fillRect(160, 0, 80, 40, TFT_BLACK);
-        cmdProcessed = true;
+      else if (serialBuffer.startsWith("triglev ")) {
+          float v = serialBuffer.substring(8).toFloat();
+          if (v >= 0 && v <= 3.3) { triggerLevel = (int)((v*4095)/3.3); processed = true; }
+      }
+      else if (serialBuffer.startsWith("trig ")) {
+          String t = serialBuffer.substring(5);
+          if (t == "on") { currentTriggerState = TRIG_NORMAL; triggerMode="ON"; }
+          else if (t == "off") { currentTriggerState = TRIG_NONE; triggerMode="OFF"; }
+          else if (t == "auto") { currentTriggerState = TRIG_AUTO; triggerMode="AUTO"; }
+          processed = true;
       }
       
-      if (cmdProcessed) forceScopeRefresh();
-      if (serialBuffer != "help") printMenu(); 
-      serialBuffer = ""; 
+      if(processed) printMenu();
+      serialBuffer = "";
     } else if (serialBuffer.length() < 20) serialBuffer += c;
   }
 }
 
 void setup() {
   Serial.begin(115200);
-  pinMode(TFT_BL, OUTPUT); digitalWrite(TFT_BL, HIGH); pinMode(DAC_PIN, OUTPUT); 
+  pinMode(TFT_BL, OUTPUT); digitalWrite(TFT_BL, HIGH); pinMode(DAC_PIN, OUTPUT);
   ledcSetup(0, 683, 8); ledcAttachPin(27, 0); ledcWrite(0, 77); 
   ledcSetup(1, 683, 8); ledcAttachPin(14, 1); ledcWrite(1, 128); 
   ledcSetup(2, 683, 8); ledcAttachPin(12, 2); ledcWrite(2, 179); 
   tft.init(); tft.setRotation(1); tft.fillScreen(TFT_BLACK);
-  precomputeWaveforms(); 
-  updateGenFreq(683.0); 
-  drawGrid();       
+  precomputeWaveforms(); updateGenFreq(683.0); drawGrid();
   for(int i=0; i<GRAPH_WIDTH; i++) oldSignalBuffer[i] = GRAPH_CENTER;
   scopeInit(); scopeStart();
+  Serial.println("System Started. Burst Mode.");
   printMenu();
 }
 
 void loop() {
-  unsigned long loopStart = micros();
-  handleSerial();
-  if (currentSignalType == SIGNAL_SQUARE) {
-    static int squareTickCount = 0;
-    squareTickCount++;
-    if (squareTickCount < squareHalfPeriodTicks) dacWrite(DAC_PIN, 50);
-    else if (squareTickCount < squareHalfPeriodTicks * 2) dacWrite(DAC_PIN, 205);
-    else { squareTickCount = 0; dacWrite(DAC_PIN, 50); }
-  } else {
-    waveIndex += waveIncrement; 
-    if (waveIndex >= 256.0) waveIndex -= 256.0;
-    int idx = (int)waveIndex;
-    uint8_t outputVal = 128;
-    if (currentSignalType == SIGNAL_SINE) outputVal = sineTable[idx];
-    else if (currentSignalType == SIGNAL_TRIANGLE) outputVal = triTable[idx];
-    else if (currentSignalType == SIGNAL_SAWTOOTH) outputVal = sawTable[idx];
-    dacWrite(DAC_PIN, outputVal);
-  }
-  switch (scopeState) {
-    case STATE_SEARCHING:
-      if (scopeCheckTrigger()) {
-        bool foundTrigger = false;
-        if (currentTriggerState == TRIG_NONE) { triggerIndex = 0; foundTrigger = true; } 
-        else {
-            const int hyst = 50; const int HYST_WINDOW = 8;
-            for (int i = HYST_WINDOW + 1; i < ADC_BUFFER_SIZE / 2; i++) {
-               if (oscilloscopeBuffer[i] > (triggerLevel + hyst)) {
-                   int below_count = 0;
-                   for (int w = 1; w <= HYST_WINDOW; w++) { if (oscilloscopeBuffer[i - w] < (triggerLevel - hyst)) below_count++; } 
-                   if (below_count >= HYST_WINDOW / 2) {
-                       triggerIndex = i;
-                       while (triggerIndex > 0 && oscilloscopeBuffer[triggerIndex] > triggerLevel) triggerIndex--;
-                       foundTrigger = true; triggerMissedCount = 0; break;
-                   }
-               }
-            }
-            if (!foundTrigger) triggerMissedCount++;
-        }
-        bool shouldDraw = false;
-        if (currentTriggerState == TRIG_NONE) shouldDraw = true; 
-        else if (currentTriggerState == TRIG_AUTO) { shouldDraw = (foundTrigger || triggerMissedCount > 10); if (!foundTrigger && shouldDraw) triggerIndex = 0; } 
-        else if (currentTriggerState == TRIG_NORMAL) shouldDraw = foundTrigger;
-        if (shouldDraw) { for(int k=0; k<GRAPH_WIDTH; k++) displaySnapshot[k] = oscilloscopeBuffer[triggerIndex + k]; drawIndex = 1; scopeState = STATE_DRAWING; }
-      }
-      break;
-    case STATE_DRAWING:
-      if (drawIndex == 1 && showStats) {
-          // Calculam Stats o singura data pe frame (cand suntem la primul pixel)
-          uint16_t minVal = 4095;
-          uint16_t maxVal = 0;
-          for(int k=0; k<GRAPH_WIDTH; k++) {
-              if (displaySnapshot[k] < minVal) minVal = displaySnapshot[k];
-              if (displaySnapshot[k] > maxVal) maxVal = displaySnapshot[k];
-          }
-          float vMin = (minVal * 3.3) / 4095.0;
-          float vMax = (maxVal * 3.3) / 4095.0;
-          float vPp = vMax - vMin;
+  // === FAZA 1: BURST GENERATION ===
+  unsigned long burstStart = millis();
+  unsigned long nextSampleTime = micros();
+  
+  while (millis() - burstStart < 25) {
+      if (micros() >= nextSampleTime) {
+          nextSampleTime += dacPeriodMicros; 
           
-          tft.setTextColor(TFT_YELLOW, TFT_BLACK);
-          tft.setTextSize(1);
-          tft.setCursor(170, 5); 
-          tft.print("Vmin:"); tft.println(vMin);
-          tft.setCursor(170, 15);
-          tft.print("Vmax:"); tft.println(vMax);
-          tft.setCursor(170, 25);
-          tft.print("Vpp :"); tft.println(vPp);
+          if (currentSignalType == SIGNAL_SQUARE) {
+              waveIndex += waveIncrement;
+              if (waveIndex >= 256.0) waveIndex -= 256.0;
+              dacWrite(DAC_PIN, (waveIndex < 128) ? 50 : 205);
+          } 
+          else {
+              waveIndex += waveIncrement;
+              if (waveIndex >= 256.0) waveIndex -= 256.0;
+              
+              uint8_t val = 128;
+              if (currentSignalType == SIGNAL_SINE) val = sineTable[(int)waveIndex];
+              else if (currentSignalType == SIGNAL_TRIANGLE) val = triTable[(int)waveIndex];
+              else if (currentSignalType == SIGNAL_SAWTOOTH) val = sawTable[(int)waveIndex];
+              dacWrite(DAC_PIN, val);
+          }
+      }
+  }
+
+  // === FAZA 2: PROCESARE & UI ===
+  handleSerial();
+
+  if (scopeCheckTrigger()) {
+      int startIdx = 0;
+      bool found = false;
+      static int missed = 0;
+
+      if (currentTriggerState == TRIG_NONE) { found = true; }
+      else {
+          for (int i = 5; i < ADC_BUFFER_SIZE/2; i++) {
+              if (oscilloscopeBuffer[i] > triggerLevel + 50) { 
+                  int below = 0;
+                  for(int w=1; w<=8; w++) if(oscilloscopeBuffer[i-w] < triggerLevel-50) below++;
+                  if(below >= 4) { 
+                      startIdx = i; 
+                      while(startIdx>0 && oscilloscopeBuffer[startIdx]>triggerLevel) startIdx--;
+                      found = true; missed = 0; break; 
+                  }
+              }
+          }
+          if(!found) missed++;
       }
 
-      if (drawIndex < GRAPH_WIDTH) {
-          int i = drawIndex; int x1 = GRAPH_OFFSET_X + (i - 1); int x2 = GRAPH_OFFSET_X + i;
-          int oldY1 = map(oldSignalBuffer[i-1], 50, 4050, GRAPH_HEIGHT, 0);
-          int oldY2 = map(oldSignalBuffer[i], 50, 4050, GRAPH_HEIGHT, 0);
-          oldY1 = constrain(oldY1, 0, GRAPH_HEIGHT - 1); oldY2 = constrain(oldY2, 0, GRAPH_HEIGHT - 1);
-          tft.drawLine(x1, oldY1, x2, oldY2, TFT_BLACK);
-          if (x2 % 5 == 0) for(int k=0; k<3; k++) tft.drawPixel(x2, gridY[k], TFT_DARKGREY);
-          int val1 = displaySnapshot[i - 1]; int val2 = displaySnapshot[i];
-          int newY1 = map(val1, 50, 4050, GRAPH_HEIGHT, 0); int newY2 = map(val2, 50, 4050, GRAPH_HEIGHT, 0);
-          newY1 = constrain(newY1, 0, GRAPH_HEIGHT - 1); newY2 = constrain(newY2, 0, GRAPH_HEIGHT - 1);
-          tft.drawLine(x1, newY1, x2, newY2, signalColor);
-          oldSignalBuffer[i-1] = val1; drawIndex++;
-      } else { oldSignalBuffer[GRAPH_WIDTH - 1] = displaySnapshot[GRAPH_WIDTH - 1]; scopeState = STATE_SEARCHING; }
-      break;
+      bool draw = false;
+      if (currentTriggerState == TRIG_NONE) draw = true;
+      else if (currentTriggerState == TRIG_AUTO) { draw = (found || missed > 5); if(!found) startIdx=0; }
+      else if (currentTriggerState == TRIG_NORMAL) draw = found;
+
+      if (draw) {
+          float vMin=3.3, vMax=0, vPp=0;
+          if (showStats) {
+              int minRaw=4095, maxRaw=0;
+              for(int k=0; k<GRAPH_WIDTH; k++) {
+                  uint16_t val = oscilloscopeBuffer[startIdx+k];
+                  if(val<minRaw) minRaw=val; 
+                  if(val>maxRaw) maxRaw=val;
+              }
+              vMin = (minRaw*3.3)/4095.0;
+              vMax = (maxRaw*3.3)/4095.0;
+              vPp = vMax - vMin;
+          }
+
+          for (int i = 1; i < GRAPH_WIDTH; i++) {
+              int x1 = GRAPH_OFFSET_X + (i-1); int x2 = GRAPH_OFFSET_X + i;
+              
+              int oldY1 = map(oldSignalBuffer[i-1], 50, 4050, GRAPH_HEIGHT, 0);
+              int oldY2 = map(oldSignalBuffer[i], 50, 4050, GRAPH_HEIGHT, 0);
+              tft.drawLine(x1, constrain(oldY1,0,199), x2, constrain(oldY2,0,199), TFT_BLACK);
+              if (x2%5==0) for(int k=0; k<3; k++) tft.drawPixel(x2, gridY[k], TFT_DARKGREY);
+
+              uint16_t val1 = oscilloscopeBuffer[startIdx + i - 1];
+              uint16_t val2 = oscilloscopeBuffer[startIdx + i];
+              int newY1 = map(val1, 50, 4050, GRAPH_HEIGHT, 0);
+              int newY2 = map(val2, 50, 4050, GRAPH_HEIGHT, 0);
+              tft.drawLine(x1, constrain(newY1,0,199), x2, constrain(newY2,0,199), signalColor);
+              
+              oldSignalBuffer[i-1] = val1;
+          }
+          oldSignalBuffer[GRAPH_WIDTH-1] = oscilloscopeBuffer[startIdx + GRAPH_WIDTH - 1];
+
+          if (showStats) {
+              tft.setTextColor(TFT_YELLOW, TFT_BLACK); tft.setTextSize(1);
+              tft.setCursor(170, 5); tft.print("Min:"); tft.print(vMin);
+              tft.setCursor(170, 15); tft.print("Max:"); tft.print(vMax);
+              tft.setCursor(170, 25); tft.print("Vpp:"); tft.print(vPp);
+          }
+      }
   }
-  while ((micros() - loopStart) < LOOP_TARGET_MICROS) { } 
 }
