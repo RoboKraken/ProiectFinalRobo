@@ -7,8 +7,7 @@ volatile uint8_t active_buffer_id = 0;
 volatile bool adc_buffer_ready = false;
 uint16_t oscilloscopeBuffer[ADC_BUFFER_SIZE];
 
-// Buffer Raw. Chiar daca e Mono, alocam destul. 
-// ADC_BUFFER_SIZE = 512. 
+// Buffer Raw.
 uint16_t i2sRawBuffer[ADC_BUFFER_SIZE]; 
 
 // Task Handle
@@ -36,7 +35,7 @@ void i2sTask(void *pvParameters) {
             active_buffer_id = !active_buffer_id; 
             adc_buffer_ready = true; 
         } else {
-            vTaskDelay(1); // Anti-spin lock in caz de eroare
+            vTaskDelay(1); // Anti-spin lock
         }
     }
 }
@@ -44,13 +43,13 @@ void i2sTask(void *pvParameters) {
 void scopeInit() {
     i2s_config_t i2s_config = {
         .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX | I2S_MODE_ADC_BUILT_IN),
-        .sample_rate = 50000, // 50 kHz
+        .sample_rate = 50000, // Default 50 kHz
         .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
-        .channel_format = I2S_CHANNEL_FMT_ONLY_RIGHT, // Mono Safe
+        .channel_format = I2S_CHANNEL_FMT_ONLY_RIGHT, 
         .communication_format = I2S_COMM_FORMAT_STAND_I2S,
         .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
         .dma_buf_count = 4,
-        .dma_buf_len = 1024, // Buffer DMA generos
+        .dma_buf_len = 1024, 
         .use_apll = false,
         .tx_desc_auto_clear = false,
         .fixed_mclk = 0
@@ -65,6 +64,11 @@ void scopeStart() {
     xTaskCreatePinnedToCore(
         i2sTask, "I2S_Reader", 4096, NULL, 20, &i2sTaskHandle, 0
     );
+}
+
+void scopeSetRate(uint32_t rate) {
+    // Schimbam rata de esantionare din mers
+    i2s_set_sample_rates(I2S_PORT, rate);
 }
 
 bool scopeCheckTrigger() {

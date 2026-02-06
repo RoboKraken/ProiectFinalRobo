@@ -24,10 +24,10 @@ extern volatile bool adc_buffer_ready;
 extern uint16_t oscilloscopeBuffer[ADC_BUFFER_SIZE];
 
 // --- Control ---
-void scopeInit(); 
-void scopeStart(); // Porneste task-ul pe Core 0
-
-// Functie apelata din Loop (Core 1) pentru a verifica si prelua datele noi
+void scopeInit();
+void scopeStart();
+void scopeSetRate(uint32_t rate); // Functie noua
 bool scopeCheckTrigger();
+
 
 #endif

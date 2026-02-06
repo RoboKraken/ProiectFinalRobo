@@ -25,7 +25,6 @@ int gridY[3];
 uint16_t signalColor = TFT_GREEN; 
 
 // Variabile Trigger
-// Modificat: nu mai e const pentru a putea fi schimbat din serial
 int triggerLevel = 2000; 
 
 // --- Configurare Generator Semnal ---
@@ -68,6 +67,9 @@ TriggerState currentTriggerState = TRIG_AUTO;
 // --- Loop Regulator ---
 const unsigned long LOOP_TARGET_MICROS = 61; 
 
+// --- Declaratii Forward ---
+void drawGrid(); // Necesara pentru apelul din handleSerial
+
 // --- Functie Afisare Meniu ---
 void printMenu() {
   Serial.println("\n--- OSCILOSCOP ESP32 - MENIU ---");
@@ -92,8 +94,8 @@ void printMenu() {
   Serial.println("  color [verde|rosu...]");
   Serial.println("  trig [on|off|auto]");
   Serial.println("  triglev [0.0 - 3.3]");
+  Serial.println("  samp [10 - 150]");
 }
-
 
 // --- Parser Comenzi Serial (Non-Blocking) ---
 String serialBuffer = "";
@@ -118,7 +120,7 @@ void handleSerial() {
 
       // Comanda TRIG (Mode)
       if (serialBuffer.startsWith("trig ")) {
-        String t = serialBuffer.substring(5); // 'trig ' are 5 caractere
+        String t = serialBuffer.substring(5);
         if (t == "on") {
           currentTriggerState = TRIG_NORMAL;
           triggerMode = "NORMAL (ON)";
@@ -134,22 +136,39 @@ void handleSerial() {
 
       // Comanda TRIGLEV (Level)
       if (serialBuffer.startsWith("triglev ")) {
-        String valStr = serialBuffer.substring(8); // 'triglev ' are 8 caractere
+        String valStr = serialBuffer.substring(8);
         float valV = valStr.toFloat();
-        
         if (valV >= 0.0 && valV <= 3.3) {
-           // Conversie Volt -> ADC (0-4095)
            triggerLevel = (int)((valV * 4095.0) / 3.3);
-           Serial.print("Trigger Level setat la: "); 
-           Serial.print(valV, 1); 
-           Serial.println(" V");
+           Serial.print("Trigger Level: "); Serial.println(valV);
         } else {
-           Serial.println("EROARE: Valoare invalida! Folositi range 0.0 - 3.3 V.");
+           Serial.println("EROARE: Range 0.0 - 3.3 V.");
+        }
+      }
+
+      // Comanda SAMP (Rate)
+      if (serialBuffer.startsWith("samp ")) {
+        String valStr = serialBuffer.substring(5);
+        float rateK = valStr.toFloat();
+        
+        // Limitam intre 10kSPS si 150kSPS pentru stabilitate
+        if (rateK >= 10.0 && rateK <= 150.0) {
+            samplingRateKSPS = rateK;
+            // Configuram hardware-ul (conversie in Hz)
+            scopeSetRate((uint32_t)(rateK * 1000));
+            
+            Serial.print("Sample Rate setat la: "); 
+            Serial.print(rateK); Serial.println(" kSPS");
+            
+            // Fortam redesenarea grilei pentru a actualiza axa de timp
+            drawGrid(); 
+        } else {
+            Serial.println("EROARE: Range 10 - 150 kSPS.");
         }
       }
       
-      printMenu(); // Update Meniu
-      serialBuffer = ""; // Reset buffer
+      printMenu(); 
+      serialBuffer = ""; 
     } else {
       if (serialBuffer.length() < 20) { 
         serialBuffer += c;
@@ -165,6 +184,9 @@ void precomputeSine() {
 }
 
 void drawGrid() {
+  // 1. Stergem zona de text de jos pentru a nu suprapune numerele
+  tft.fillRect(0, GRAPH_HEIGHT + 1, SCREEN_WIDTH, SCREEN_HEIGHT - GRAPH_HEIGHT, TFT_BLACK);
+
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setTextSize(1);
   tft.drawString("V", 2, 2); 
@@ -182,11 +204,17 @@ void drawGrid() {
   tft.drawFastHLine(0, GRAPH_HEIGHT, 240, TFT_WHITE); 
   tft.drawString("0", GRAPH_OFFSET_X, GRAPH_HEIGHT + 5);
   
-  float totalTimeMs = 4.4; 
+  // --- CALCUL DINAMIC AXA TIMP ---
+  // Formula: TimpTotal(ms) = Pixeli / Rate(kSPS)
+  // Ex: 220 / 50 = 4.4 ms
+  float totalTimeMs = (float)GRAPH_WIDTH / samplingRateKSPS;
+  
   tft.drawFastVLine(GRAPH_OFFSET_X + GRAPH_WIDTH/2, GRAPH_HEIGHT, 5, TFT_WHITE);
   tft.drawFloat(totalTimeMs / 2.0, 1, GRAPH_OFFSET_X + GRAPH_WIDTH/2 - 10, GRAPH_HEIGHT + 5);
+  
   tft.drawFastVLine(SCREEN_WIDTH - 1, GRAPH_HEIGHT, 5, TFT_WHITE);
   tft.drawFloat(totalTimeMs, 1, SCREEN_WIDTH - 25, GRAPH_HEIGHT + 5);
+  
   tft.drawString("ms", SCREEN_WIDTH - 15, SCREEN_HEIGHT - 10);
 }
 
@@ -251,9 +279,6 @@ void loop() {
   if (currentSignalType == SIGNAL_SQUARE) {
     static int squareTickCount = 0;
     squareTickCount++;
-    
-    // Perioada totala = 24 ticks (24 * 61us = 1464us) -> aprox 3 unde pe ecran
-    // Jumatate = 12 ticks
     if (squareTickCount < 12) { 
         dacWrite(DAC_PIN, 50);
     } else if (squareTickCount < 24) {
@@ -264,12 +289,8 @@ void loop() {
     }
   } 
   else {
-    // Sinus: 256 pasi totali / 24 ticks = 10.666 increment per tick
     sineIndex += 10.666; 
-    
     if (sineIndex >= 256.0) sineIndex -= 256.0;
-    
-    // Convertim la int doar pentru accesul in tabel
     dacWrite(DAC_PIN, sineTable[(int)sineIndex]);
   }
 
@@ -279,13 +300,11 @@ void loop() {
       if (scopeCheckTrigger()) {
         bool foundTrigger = false;
         
-        // --- 1. MOD OFF (NONE) ---
         if (currentTriggerState == TRIG_NONE) {
             triggerIndex = 0;
             foundTrigger = true; 
         } 
         else {
-            // --- 2. MOD AUTO sau NORMAL (ON) ---
             const int hyst = 50; 
             const int HYST_WINDOW = 8;
             
@@ -308,30 +327,21 @@ void loop() {
                    }
                }
             }
-            
             if (!foundTrigger) triggerMissedCount++;
         }
 
-        // --- DECIZIE: Desenam sau nu? ---
         bool shouldDraw = false;
-        
-        if (currentTriggerState == TRIG_NONE) {
-            shouldDraw = true; 
-        } 
+        if (currentTriggerState == TRIG_NONE) shouldDraw = true; 
         else if (currentTriggerState == TRIG_AUTO) {
             shouldDraw = (foundTrigger || triggerMissedCount > 10);
             if (!foundTrigger && shouldDraw) triggerIndex = 0; 
         } 
-        else if (currentTriggerState == TRIG_NORMAL) {
-            shouldDraw = foundTrigger;
-        }
+        else if (currentTriggerState == TRIG_NORMAL) shouldDraw = foundTrigger;
 
         if (shouldDraw) {
-            // --- SNAPSHOT ---
             for(int k=0; k<GRAPH_WIDTH; k++) {
                 displaySnapshot[k] = oscilloscopeBuffer[triggerIndex + k];
             }
-            
             drawIndex = 1; 
             scopeState = STATE_DRAWING; 
         }
@@ -366,7 +376,6 @@ void loop() {
           oldSignalBuffer[i-1] = val1;
           drawIndex++;
       } else {
-          // --- FIX BUG ---
           oldSignalBuffer[GRAPH_WIDTH - 1] = displaySnapshot[GRAPH_WIDTH - 1];
           scopeState = STATE_SEARCHING;
       }
@@ -374,7 +383,5 @@ void loop() {
   }
   
   // --- 4. LOOP REGULATOR ---
-  while ((micros() - loopStart) < LOOP_TARGET_MICROS) {
-    // Asteptam
-  }
+  while ((micros() - loopStart) < LOOP_TARGET_MICROS) { } 
 }
