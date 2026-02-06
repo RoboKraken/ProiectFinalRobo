@@ -28,18 +28,9 @@ void i2sTask(void *pvParameters) {
             
             volatile uint16_t* targetBuffer = (active_buffer_id == 0) ? adc_buffer0 : adc_buffer1;
             
-            uint16_t lastVal = 2048; // Valoare default (mijloc)
-            
             for (int i = 0; i < ADC_BUFFER_SIZE; i++) {
-                uint16_t val = i2sRawBuffer[i] & 0x0FFF;
-                
-                // Filtru simplu pentru 0-uri (daca apar din cauza interleaving ascuns)
-                if (val == 0) {
-                    targetBuffer[i] = lastVal;
-                } else {
-                    targetBuffer[i] = val;
-                    lastVal = val;
-                }
+                // Mascam doar bitii de date (12 biti pentru ADC ESP32)
+                targetBuffer[i] = i2sRawBuffer[i] & 0x0FFF;
             }
 
             active_buffer_id = !active_buffer_id; 
