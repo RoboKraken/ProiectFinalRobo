@@ -68,7 +68,7 @@ Obs: In diagrama pinii de la ecran nu sunt corecti deoarece componenta din diagr
 <div align="center">
   <a href="#">
     <!-- Adaugă link video aici dacă există -->
-    <img src="https://via.placeholder.com/600x338.png?text=Demo+Video+Osciloscop" alt="Oscilloscope Demo" width="600">
+    <img src="https://youtu.be/ZeMVKOXIQYw?si=W0rsl_02krphP6-k" alt="Oscilloscope Demo" width="600">
   </a> 
 </div>
 
