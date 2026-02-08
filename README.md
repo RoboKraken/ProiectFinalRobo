@@ -66,8 +66,8 @@ Obs: In diagrama pinii de la ecran nu sunt corecti deoarece componenta din diagr
 ## 📺 Video Youtube
 
 <div align="center">
-  <a href="#">
-    <img src="https://youtu.be/ZeMVKOXIQYw" alt="Oscilloscope Demo" width="600">
+  <a href="https://youtu.be/ZeMVKOXIQYw">
+    <img src="https://img.youtube.com/vi/ZeMVKOXIQYw/0.jpg" alt="Liquid Run Gameplay" width="600">
   </a> 
 </div>
 
